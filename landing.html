@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>kunjolu</title>
+  <meta name="description" content="Install our app">
+  <link rel="icon" href="./photos/logo.png" type="image/png">
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#000000">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      justify-content: center;
+      align-items: center;
+      background-color: #000;
+      color: #fff;
+      font-family: 'Inter', -apple-system, sans-serif;
+      overflow: hidden;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .download-section {
+      text-align: center;
+      padding: 20px;
+      animation: fadeIn 1s ease-out forwards;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 32px;
+    }
+
+    .app-logo {
+      width: 140px;
+      height: 140px;
+      border-radius: 28px;
+      object-fit: cover;
+      box-shadow: 0 4px 24px rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .download-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 40px;
+      font-size: 1.1rem;
+      font-weight: 600;
+      text-decoration: none;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      border: 1px solid #fff;
+      background: transparent;
+      color: #fff;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      outline: none;
+    }
+    
+    .download-btn:hover {
+      background: #fff;
+      color: #000;
+    }
+    
+    .download-icon {
+      font-size: 1.2rem;
+    }
+
+    #ios-hint {
+      display: none; 
+      color: #888; 
+      margin-top: 24px; 
+      font-size: 0.85rem;
+      letter-spacing: 1px;
+    }
+    
+    #ios-hint svg {
+      width: 16px; 
+      vertical-align: middle; 
+      fill: #888;
+      margin: 0 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="download-section">
+    <img src="./photos/logo.png" alt="App Logo" class="app-logo">
+    <div>
+      <button id="install-btn" class="download-btn">
+        <span class="download-icon">↓</span> Open App
+      </button>
+      <div id="ios-hint">
+        To install on iOS: Tap Share <svg viewBox="0 0 50 50"><path d="M25 2.5l-12.5 15h7.5v15h10v-15h7.5zM10 35v7.5h30v-7.5h5v12.5h-40v-12.5z"/></svg> and "Add to Home Screen"
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // PWA Installation Logic
+    let deferredPrompt;
+    const installBtn = document.getElementById('install-btn');
+    const iosHint = document.getElementById('ios-hint');
+
+    // Register Service Worker for PWA
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').then(reg => {
+          console.log('ServiceWorker registered:', reg.scope);
+        }).catch(err => {
+          console.log('ServiceWorker registration failed:', err);
+        });
+      });
+    }
+
+    // Default action is to just open the app if already installed or on unsupported browsers
+    installBtn.onclick = () => window.location.href = './index.html';
+
+    // Detect iOS
+    const isIos = () => {
+      const userAgent = window.navigator.userAgent.toLowerCase();
+      return /iphone|ipad|ipod/.test( userAgent );
+    }
+    
+    // Detect if app is already installed / standalone
+    const isStandalone = () => {
+      return (window.matchMedia('(display-mode: standalone)').matches) || (window.navigator.standalone) || document.referrer.includes('android-app://');
+    }
+
+    // Show iOS hint if they are on an iPhone/iPad and not already in standalone mode
+    if (isIos() && !isStandalone()) {
+      iosHint.style.display = 'block';
+    }
+
+    // Listen for the install prompt from the browser
+    window.addEventListener('beforeinstallprompt', (e) => {
+      // Prevent the mini-infobar from appearing on mobile
+      e.preventDefault();
+      // Stash the event so it can be triggered later
+      deferredPrompt = e;
+      
+      // Update button text to "Install App"
+      installBtn.innerHTML = '<span class="download-icon">↓</span> Install App';
+      
+      installBtn.onclick = async () => {
+        // Show the install prompt
+        deferredPrompt.prompt();
+        // Wait for the user to respond to the prompt
+        const { outcome } = await deferredPrompt.userChoice;
+        console.log(`User response to the install prompt: ${outcome}`);
+        // We've used the prompt, throw it away
+        deferredPrompt = null;
+        
+        // Revert button back to "Open App"
+        installBtn.innerHTML = '<span class="download-icon">↓</span> Open App';
+        installBtn.onclick = () => window.location.href = './index.html';
+      };
+    });
+  </script>
+</body>
+</html>
