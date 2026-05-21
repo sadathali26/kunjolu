@@ -42,7 +42,6 @@ function InfiniteGallery() {
         ];
         const MAX_W = 238, MAX_H = 288;
 
-        // Tighter step — small gap, slight rotation overlap is fine
         const cols = 5, rows = 4;
         const stepW = MAX_W + 22;   // 260
         const stepH = MAX_H + 20;   // 308
@@ -51,26 +50,27 @@ function InfiniteGallery() {
         dimsRef.current = { w: blockW, h: blockH };
 
         const jitter = 5;
-
         const shuffled = [...PHOTOS].sort(() => Math.random() - 0.5);
+
         const buildLayer = (offset, isFar) => {
             const out = [];
             let idx = offset;
             const gridOffX = isFar ? stepW / 2 : 0;
             const gridOffY = isFar ? stepH / 2 : 0;
-            // Use -2..2 grid (25 blocks) to guarantee no black at any scroll/parallax position
-            for (let gy = -2; gy <= 2; gy++) {
-                for (let gx = -2; gx <= 2; gx++) {
+            // gx -1..2 (4 blocks), gy -1..1 (3 blocks) = 12 blocks
+            // Covers viewport + max parallax/scroll in all directions without excess tiles
+            for (let gy = -1; gy <= 1; gy++) {
+                for (let gx = -1; gx <= 2; gx++) {
                     for (let r = 0; r < rows; r++) {
                         for (let c = 0; c < cols; c++) {
                             const size = SIZES[idx % SIZES.length];
                             const tiltDir = ((c + r) % 2 === 0) ? 1 : -1;
                             const rot = tiltDir * (2 + Math.random() * 6);
                             const opacity = isFar
-                                ? 0.25 + Math.random() * 0.20  // far: 0.25–0.45
+                                ? 0.25 + Math.random() * 0.20
                                 : 0.78 + Math.random() * 0.22;
-                            const driftDur = (5 + Math.random() * 9).toFixed(1);
-                            const driftDel = (Math.random() * 7).toFixed(1);
+                            const driftDur = (6 + Math.random() * 10).toFixed(1);
+                            const driftDel = (Math.random() * 8).toFixed(1);
                             out.push({
                                 id: `${offset}_${gy}_${gx}_${r}_${c}`,
                                 src: shuffled[idx % count],
@@ -96,23 +96,36 @@ function InfiniteGallery() {
     useEffect(() => {
         // iOS gyro permission
         const requestGyro = () => {
-            if (typeof DeviceOrientationEvent !== 'undefined' &&
-                typeof DeviceOrientationEvent.requestPermission === 'function') {
-                DeviceOrientationEvent.requestPermission().catch(() => {});
+            if (typeof DeviceMotionEvent !== 'undefined' &&
+                typeof DeviceMotionEvent.requestPermission === 'function') {
+                DeviceMotionEvent.requestPermission().catch(() => {});
             }
         };
         window.addEventListener('touchstart', requestGyro, { once: true });
 
-        const onOrientation = (e) => {
-            if (e.gamma == null || e.beta == null) return;
-            targetRef.current.x = Math.max(-1, Math.min(1, e.gamma / 40));
-            targetRef.current.y = Math.max(-1, Math.min(1, (e.beta - 90) / 40));
+        // SENSITIVITY: how much each deg/s of rotation shifts the target (-1..1)
+        // DECAY: per-frame pull back to center when phone is held still
+        const SENSITIVITY = 0.0055;
+        const DECAY = 0.97;
+
+        const onMotion = (e) => {
+            if (!e.rotationRate) return;
+            const { beta, gamma } = e.rotationRate; // deg/s in phone LOCAL frame
+            if (beta == null || gamma == null) return;
+            // Integrate angular velocity — works in ANY hold orientation
+            targetRef.current.x = Math.max(-1, Math.min(1,
+                targetRef.current.x + gamma * SENSITIVITY
+            ));
+            targetRef.current.y = Math.max(-1, Math.min(1,
+                targetRef.current.y + beta * SENSITIVITY
+            ));
         };
+
         const onMouse = (e) => {
             targetRef.current.x = (e.clientX / window.innerWidth  - 0.5) * 2;
             targetRef.current.y = (e.clientY / window.innerHeight - 0.5) * 2;
         };
-        window.addEventListener('deviceorientation', onOrientation, true);
+        window.addEventListener('devicemotion', onMotion, true);
         window.addEventListener('mousemove', onMouse);
 
         const LERP = 0.08;
@@ -123,6 +136,10 @@ function InfiniteGallery() {
         const NEAR_VX = -0.62, NEAR_VY = -0.40;  // fast drift
 
         const animate = () => {
+            // Decay target back to center when phone is still
+            targetRef.current.x *= DECAY;
+            targetRef.current.y *= DECAY;
+
             const tx = targetRef.current.x, ty = targetRef.current.y;
             const sx = smoothRef.current.x += (tx - smoothRef.current.x) * LERP;
             const sy = smoothRef.current.y += (ty - smoothRef.current.y) * LERP;
@@ -165,7 +182,7 @@ function InfiniteGallery() {
         rafRef.current = requestAnimationFrame(animate);
 
         return () => {
-            window.removeEventListener('deviceorientation', onOrientation, true);
+            window.removeEventListener('devicemotion', onMotion, true);
             window.removeEventListener('mousemove', onMouse);
             cancelAnimationFrame(rafRef.current);
         };
@@ -177,9 +194,7 @@ function InfiniteGallery() {
             left: p.x, top: p.y,
             width: p.w, height: p.h + 26,
             opacity: p.opacity,
-            // Pass rotation as CSS var so photoDrift animation can preserve it
             '--rot': `${p.rot}deg`,
-            animation: `photoDrift ${p.driftDur}s ease-in-out ${p.driftDel}s infinite alternate`,
         }}>
             <img src={p.src} alt="" loading="lazy" style={{ height: p.h }} />
         </div>
