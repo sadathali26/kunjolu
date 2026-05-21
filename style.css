@@ -1249,8 +1249,8 @@ img{max-width:100%;display:block}
   display: none; /* Hidden by default */
 }
 
-/* Detect mobile portrait */
-@media screen and (max-width: 900px) and (orientation: portrait) {
+/* Detect portrait */
+@media screen and (orientation: portrait) {
   #landscape-warning {
     display: flex;
     position: fixed;

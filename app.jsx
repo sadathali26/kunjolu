@@ -268,7 +268,11 @@ function Loader({ onEnter }) {
     const handleEnter = () => {
         setHiding(true);
         if (document.documentElement.requestFullscreen) {
-            document.documentElement.requestFullscreen().catch(() => { });
+            document.documentElement.requestFullscreen().then(() => {
+                if (window.screen && window.screen.orientation && window.screen.orientation.lock) {
+                    window.screen.orientation.lock('landscape').catch(() => {});
+                }
+            }).catch(() => { });
         }
         setTimeout(onEnter, 800); // Wait for CSS transition
     };
@@ -1098,7 +1102,11 @@ function FullScreenButton() {
     const toggleFullScreen = () => {
         if (!document.fullscreenElement) {
             if (document.documentElement.requestFullscreen) {
-                document.documentElement.requestFullscreen().catch(() => { });
+                document.documentElement.requestFullscreen().then(() => {
+                    if (window.screen && window.screen.orientation && window.screen.orientation.lock) {
+                        window.screen.orientation.lock('landscape').catch(() => {});
+                    }
+                }).catch(() => { });
             }
         } else {
             if (document.exitFullscreen) {
