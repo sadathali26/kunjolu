@@ -17,124 +17,215 @@ const PHOTOS = [
     './assets/im6.jpg', './assets/im7.jpg', './assets/im8.jpg', './assets/im9.jpg'
 ];
 
-// ===== INFINITE GALLERY BACKGROUND =====
+// ===== INFINITE GALLERY BACKGROUND — OPTIMISED 3D GYRO =====
 function InfiniteGallery() {
-    const vpRef = useRef(null);
-    const rafRef = useRef(null);
-    const mouseRef = useRef({ x: 0, y: 0 });
-    const scrollRef = useRef({ x: 0, y: 0 });
-    const [photos, setPhotos] = useState([]);
-    const dimsRef = useRef({ w: 840, h: 1000 });
-
+    const farRef  = useRef(null);
+    const nearRef = useRef(null);
+    const sceneRef = useRef(null);
+    const rafRef  = useRef(null);
+    const targetRef = useRef({ x: 0, y: 0 });
+    const smoothRef = useRef({ x: 0, y: 0 });
+    // Independent scroll offsets for each layer
+    const farScrollRef  = useRef({ x: 0, y: 0 });
+    const nearScrollRef = useRef({ x: 0, y: 0 });
+    const [tiles, setTiles] = useState({ far: [], near: [] });
+    const dimsRef = useRef({ w: 1200, h: 900 });
 
     useEffect(() => {
         const count = PHOTOS.length;
-        // Force a block size larger than most screens so we only need a 3x3 grid
-        const cols = 10;
-        const rows = 7;
-        const cellW = 200, cellH = 250, pad = 40;
-        const blockW = cols * (cellW + pad);
-        const blockH = rows * (cellH + pad);
+
+        // Size presets — small / medium / large
+        const SIZES = [
+            { w: 148, h: 182 },
+            { w: 195, h: 242 },
+            { w: 238, h: 288 },
+        ];
+        const MAX_W = 238, MAX_H = 288;
+
+        // Tighter step — small gap, slight rotation overlap is fine
+        const cols = 5, rows = 4;
+        const stepW = MAX_W + 22;   // 260
+        const stepH = MAX_H + 20;   // 308
+        const blockW = cols * stepW; // 1300
+        const blockH = rows * stepH; // 1232
         dimsRef.current = { w: blockW, h: blockH };
 
-        const baseTiles = [];
-        let idx = 0;
-        for (let r = 0; r < rows; r++) {
-            for (let c = 0; c < cols; c++) {
-                baseTiles.push({
-                    src: PHOTOS[idx % count],
-                    bx: c * (cellW + pad) + (Math.random() - 0.5) * 20,
-                    by: r * (cellH + pad) + (Math.random() - 0.5) * 20,
-                    w: cellW + (Math.random() - 0.5) * 40,
-                    h: cellH - 40 + (Math.random() - 0.5) * 30,
-                    rot: (Math.random() - 0.5) * 24,
-                    z: (Math.random() - 0.5) * 60,
-                });
-                idx++;
-            }
-        }
+        const jitter = 5;
 
-        const tiles = [];
-        // A 3x3 grid of blocks is enough to cover parallax and smooth resetting
-        for (let gy = -1; gy <= 1; gy++) {
-            for (let gx = -1; gx <= 1; gx++) {
-                baseTiles.forEach((t, i) => {
-                    tiles.push({
-                        id: `${gy}_${gx}_${i}`,
-                        src: t.src,
-                        x: gx * blockW + t.bx,
-                        y: gy * blockH + t.by,
-                        w: t.w,
-                        h: t.h,
-                        rot: t.rot,
-                        z: t.z,
-                    });
-                });
+        const shuffled = [...PHOTOS].sort(() => Math.random() - 0.5);
+        const buildLayer = (offset, isFar) => {
+            const out = [];
+            let idx = offset;
+            const gridOffX = isFar ? stepW / 2 : 0;
+            const gridOffY = isFar ? stepH / 2 : 0;
+            // Use -2..2 grid (25 blocks) to guarantee no black at any scroll/parallax position
+            for (let gy = -2; gy <= 2; gy++) {
+                for (let gx = -2; gx <= 2; gx++) {
+                    for (let r = 0; r < rows; r++) {
+                        for (let c = 0; c < cols; c++) {
+                            const size = SIZES[idx % SIZES.length];
+                            const tiltDir = ((c + r) % 2 === 0) ? 1 : -1;
+                            const rot = tiltDir * (2 + Math.random() * 6);
+                            const opacity = isFar
+                                ? 0.25 + Math.random() * 0.20  // far: 0.25–0.45
+                                : 0.78 + Math.random() * 0.22;
+                            const driftDur = (5 + Math.random() * 9).toFixed(1);
+                            const driftDel = (Math.random() * 7).toFixed(1);
+                            out.push({
+                                id: `${offset}_${gy}_${gx}_${r}_${c}`,
+                                src: shuffled[idx % count],
+                                x: gridOffX + gx * blockW + c * stepW + (stepW - size.w) / 2 + (Math.random() - 0.5) * jitter,
+                                y: gridOffY + gy * blockH + r * stepH + (stepH - size.h) / 2 + (Math.random() - 0.5) * jitter,
+                                w: size.w,
+                                h: size.h,
+                                rot,
+                                opacity,
+                                driftDur,
+                                driftDel,
+                            });
+                            idx++;
+                        }
+                    }
+                }
             }
-        }
-        setPhotos(tiles);
+            return out;
+        };
+        setTiles({ far: buildLayer(0, true), near: buildLayer(17, false) });
     }, []);
 
     useEffect(() => {
-        const onMove = (e) => {
-            mouseRef.current.x = (e.clientX / window.innerWidth - 0.5) * 2;
-            mouseRef.current.y = (e.clientY / window.innerHeight - 0.5) * 2;
-        };
-
-        const onOrientation = (e) => {
-            if (e.gamma != null && e.beta != null) {
-                // Map gamma (-30 to 30) and beta (15 to 75, neutral ~45) to -1..1
-                const x = Math.max(-1, Math.min(1, e.gamma / 30));
-                const y = Math.max(-1, Math.min(1, (e.beta - 45) / 30));
-                mouseRef.current.x = x;
-                mouseRef.current.y = y;
+        // iOS gyro permission
+        const requestGyro = () => {
+            if (typeof DeviceOrientationEvent !== 'undefined' &&
+                typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission().catch(() => {});
             }
         };
+        window.addEventListener('touchstart', requestGyro, { once: true });
 
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('deviceorientation', onOrientation);
+        const onOrientation = (e) => {
+            if (e.gamma == null || e.beta == null) return;
+            targetRef.current.x = Math.max(-1, Math.min(1, e.gamma / 40));
+            targetRef.current.y = Math.max(-1, Math.min(1, (e.beta - 90) / 40));
+        };
+        const onMouse = (e) => {
+            targetRef.current.x = (e.clientX / window.innerWidth  - 0.5) * 2;
+            targetRef.current.y = (e.clientY / window.innerHeight - 0.5) * 2;
+        };
+        window.addEventListener('deviceorientation', onOrientation, true);
+        window.addEventListener('mousemove', onMouse);
+
+        const LERP = 0.08;
+        const FAR_PX = 35, FAR_PY = 22;
+        const NEAR_PX = 95, NEAR_PY = 60;
+        // Each layer scrolls at its own speed — they drift apart naturally
+        const FAR_VX = -0.28,  FAR_VY = -0.18;   // slow drift
+        const NEAR_VX = -0.62, NEAR_VY = -0.40;  // fast drift
 
         const animate = () => {
-            scrollRef.current.x -= 0.7;
-            scrollRef.current.y -= 0.5;
+            const tx = targetRef.current.x, ty = targetRef.current.y;
+            const sx = smoothRef.current.x += (tx - smoothRef.current.x) * LERP;
+            const sy = smoothRef.current.y += (ty - smoothRef.current.y) * LERP;
 
             const { w, h } = dimsRef.current;
-            if (scrollRef.current.x <= -w) scrollRef.current.x += w;
-            if (scrollRef.current.y <= -h) scrollRef.current.y += h;
 
-            const mx = mouseRef.current.x * 30;
-            const my = mouseRef.current.y * 20;
-            const rx = mouseRef.current.y * 3;
-            const ry = -mouseRef.current.x * 3;
+            // Far layer — slow scroll
+            farScrollRef.current.x += FAR_VX;
+            farScrollRef.current.y += FAR_VY;
+            if (farScrollRef.current.x <= -w) farScrollRef.current.x += w;
+            if (farScrollRef.current.y <= -h) farScrollRef.current.y += h;
 
-            if (vpRef.current) {
-                vpRef.current.style.transform =
-                    `translate3d(${scrollRef.current.x + mx}px, ${scrollRef.current.y + my}px, 0) rotateX(${rx}deg) rotateY(${ry}deg)`;
+            // Near layer — fast scroll
+            nearScrollRef.current.x += NEAR_VX;
+            nearScrollRef.current.y += NEAR_VY;
+            if (nearScrollRef.current.x <= -w) nearScrollRef.current.x += w;
+            if (nearScrollRef.current.y <= -h) nearScrollRef.current.y += h;
+
+            // Scene tilt
+            if (sceneRef.current) {
+                const tiltX = (sy * 18).toFixed(3);
+                const tiltY = (sx * -14).toFixed(3);
+                sceneRef.current.style.transform =
+                    `rotateX(${tiltX}deg) rotateY(${tiltY}deg)`;
+            }
+            // Far layer: own scroll + slow gyro parallax
+            if (farRef.current) {
+                const fx = (farScrollRef.current.x + sx * FAR_PX).toFixed(2);
+                const fy = (farScrollRef.current.y + sy * FAR_PY).toFixed(2);
+                farRef.current.style.transform = `translate3d(${fx}px,${fy}px,0)`;
+            }
+            // Near layer: own scroll + fast gyro parallax
+            if (nearRef.current) {
+                const nx = (nearScrollRef.current.x + sx * NEAR_PX).toFixed(2);
+                const ny = (nearScrollRef.current.y + sy * NEAR_PY).toFixed(2);
+                nearRef.current.style.transform = `translate3d(${nx}px,${ny}px,0)`;
             }
             rafRef.current = requestAnimationFrame(animate);
         };
         rafRef.current = requestAnimationFrame(animate);
 
         return () => {
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('deviceorientation', onOrientation);
+            window.removeEventListener('deviceorientation', onOrientation, true);
+            window.removeEventListener('mousemove', onMouse);
             cancelAnimationFrame(rafRef.current);
         };
     }, []);
 
+    const renderTiles = (list) => list.map(p => (
+        <div key={p.id} className="gallery-photo" style={{
+            position: 'absolute',
+            left: p.x, top: p.y,
+            width: p.w, height: p.h + 26,
+            opacity: p.opacity,
+            // Pass rotation as CSS var so photoDrift animation can preserve it
+            '--rot': `${p.rot}deg`,
+            animation: `photoDrift ${p.driftDur}s ease-in-out ${p.driftDel}s infinite alternate`,
+        }}>
+            <img src={p.src} alt="" loading="lazy" style={{ height: p.h }} />
+        </div>
+    ));
+
     return (
         <div className="gallery-bg">
-            <div className="gallery-viewport" ref={vpRef}>
-                {photos.map(p => (
-                    <div key={p.id} className="gallery-photo" style={{
-                        left: p.x, top: p.y, width: p.w,
-                        transform: `rotate(${p.rot}deg) translateZ(${p.z}px)`,
-                    }}>
-                        <img src={p.src} alt="" loading="lazy" style={{ height: p.h }} />
-                    </div>
-                ))}
+            <Sparkles />
+            <div className="gallery-scene" ref={sceneRef}>
+                <div className="gallery-layer" ref={farRef}>
+                    {renderTiles(tiles.far)}
+                </div>
+                <div className="gallery-layer" ref={nearRef}>
+                    {renderTiles(tiles.near)}
+                </div>
             </div>
             <div className="gallery-overlay" />
+        </div>
+    );
+}
+
+// ===== SPARKLES =====
+const SPARKLE_DATA = Array.from({ length: 30 }, (_, i) => ({
+    id: i,
+    x: Math.random() * 100,
+    y: Math.random() * 100,
+    size: 0.55 + Math.random() * 0.9,
+    dur:  3 + Math.random() * 9,
+    del:  Math.random() * 8,
+    char: ['✦','✧','·','⋆','✺','◦'][ Math.floor(Math.random() * 6) ],
+    drift: (Math.random() - 0.5) * 40,
+}));
+
+function Sparkles() {
+    return (
+        <div className="sparkles-layer" aria-hidden="true">
+            {SPARKLE_DATA.map(s => (
+                <span key={s.id} className="sparkle" style={{
+                    left: `${s.x}%`,
+                    top:  `${s.y}%`,
+                    fontSize: `${s.size}rem`,
+                    animationDuration: `${s.dur}s`,
+                    animationDelay:    `${s.del}s`,
+                    '--drift': `${s.drift}px`,
+                }}>{s.char}</span>
+            ))}
         </div>
     );
 }
